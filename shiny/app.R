@@ -4,6 +4,8 @@ library(tidyverse)
 library(leaflet)
 library(plotly)
 library(rio)
+library(sp)
+library(sf)
 library(tigris)
 library(tmap)
 library(tmaptools)
@@ -168,7 +170,7 @@ get_map <- function(selected_geo) {
 get_vol <- function(selected_geo, id, selected_levels) { 
   if (selected_geo == "pre") {
     volunteers %>%
-      filter(van_precinct_id == id & level %in% levels)
+      filter(van_precinct_id == id & level %in% selected_levels)
   } else if (selected_geo == "fo") {
     volunteers %>%
       filter(fo_id == id & level %in% selected_levels)
@@ -186,8 +188,7 @@ server <- function(input, output, session) {
   
   selected_van_id <- reactiveVal(value = 972421)
   geo_map <- reactiveVal(value = geo_map_pre_final)
-  selected_vol <- reactiveVal(volunteers %>%
-                                filter(level > 0 & van_precinct_id == 972421))
+
   
   pal <- colorNumeric(palette="viridis", domain=geo_map_pre_final$sup_prop, na.color="transparent")
 
@@ -219,14 +220,11 @@ server <- function(input, output, session) {
                  group = "volunteers")
     
     output$sup_plot <- renderPlotly({
-      
       sup_plot <- survey_voters_geo %>%
         filter(van_precinct_id == selected_van_id()) %>%
         ggplot(aes(x = supportid)) +
         geom_bar()
-      
       ggplotly()
-      
     })
     
   })  
