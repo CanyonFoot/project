@@ -16,7 +16,7 @@ library(Cairo)
 library(rstudioapi)
 library(here)
 
-### In this section I load in the data and process it as needed
+### IN THIS SECTION I LOAD IN THE DATA AND PROCESS IT AS NEEDED
 
 # Shapefile for precincts
 geo_map_pre <- st_read("data/precincts/precincts.shp")
