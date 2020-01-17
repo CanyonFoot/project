@@ -16,13 +16,15 @@ library(Cairo)
 library(rstudioapi)
 library(here)
 
+### In this section I load in the data and process it as needed
+
 # Shapefile for precincts
 geo_map_pre <- st_read("data/precincts/precincts.shp")
 # Shapefile for fo
 geo_map_fo <- st_read("data/fo_shapefile/fo_shapefile.shp")
 # Shapefile for region
 geo_map_region <- st_read("data/region_shapefile/region_shapefile.shp")
-# Translation file 
+# Translation file for van ids and district codes  
 geo_data <- read_csv("data/full_geo_ids")
 # csv with Support_id
 survey <- read_csv("data/sample_vfact_contactcontact.csv")
@@ -85,67 +87,54 @@ geo_map_pre_final <- geo_join(geo_map_pre, support_map_pre,
 geo_map_fo_final <- geo_map_fo  %>%
   inner_join(support_map_fo, by = c("van_precin" = "van_precinct_id")) %>%
   mutate(select_id = fo_id) %>% 
-  select(select_id, fo_id, sup_prop, sup_count)
+  select(select_id, fo_id, sup_prop, sup_count, sanders_pc)
 
 geo_map_region_final <- geo_join(geo_map_region, support_map_region,
                                  by_df = "region_id", by_sp = "region_nam") %>%
   mutate(select_id = region_nam) %>%
-  select(select_id, region_nam, sup_prop, sup_count)
+  select(select_id, region_nam, sup_prop, sup_count, sanders_pc)
 
 
 tmap_mode("view")
 
-
-### FIRST TAB 
-
-# Shiny uses (fluid) pages, (fluid) rows, and columns to organize each tab. In general, pages contain rows and 
-# rows contain columns. The first argument taken by `column()` is width, which defines how much of the row
-# the content of the column is to take up. A row can contain multiple columns, but the widths of the columns
-# corresponding to a particular row must sum to 12 or less. So a column with width = 6 will take up half of the
-# row horazontally.
-
-# Each output requires an outputId. I have defined the outputId for the typology Map as "typologyMap" in the call
-# output$typologyMap <- renderLeaflet({ ... }). These Ids must be defined in this way, and are defined in the 
-# server portion of the app. This means that outputs can adapt to user input, which is the heart of interactivity 
-# in Shiny. More on this later.
+### LAYOUT FOR SHINY DASHBOARD
 
 tab1 <-  fluidPage(fluidRow(
   # Left part of first row is typology map
-  column(width = 6, leafletOutput(outputId = "bernie_map"), height = "80%"),
-  column(width = 6, plotlyOutput("sup_plot")))
-
-  )
+  column(width = 12, leafletOutput(outputId = "bernie_map"))
+  
+))
 
 
 
 ### APP BODY - CONTAINS BOTH TABS
 
-## Creates the three tabs using UIs defined above
 body <- dashboardBody(tab1
 )
 
 
 ### HEADER
 
-header <- dashboardHeader(title = "Test")
+header <- dashboardHeader(title = "Volunteers and Support Map")
 
 
 
 ### SIDE BAR 
 
 
-sidebar <- dashboardSidebar(radioButtons(inputId = "geometry_select", 
-                                                            h3("Select Geographic Level"), 
+sidebar <- dashboardSidebar(
+  # Radio button input for selecting between precincts, fos, and regions
+  radioButtons(inputId = "geometry_select", h3("Select Geographic Level"), 
                                                             choices = list("Precincts" = 'pre', 
                                                                            "Field Office" = 'fo',
                                                                            "Region" = "region"), 
                                                             selected = 'pre'),
-                            checkboxGroupInput("level_select", "Select Volunteer Levels",
+  # Check boxes for volunteers
+  checkboxGroupInput("level_select", "Select Volunteer Levels",
                                                c("0" = "0",
                                                  "1" = "1",
                                                  "2" = "2",
-                                                 "3" = "3",
-                                                 "4" = "4"), selected = c("1", "2", "3", "4"))
+                                                 "3" = "3"), selected = c("1", "2", "3"))
                                         
 )
 
@@ -157,6 +146,9 @@ ui <- dashboardPage(
   body
 )
 
+### DEFINING USEFUL FUNCTIONS FOR MAP
+
+# Takes radio buttons as input to return the needed map
 get_map <- function(selected_geo) {
   if (selected_geo == "pre") {
     geo_map_pre_final
@@ -166,6 +158,8 @@ get_map <- function(selected_geo) {
     geo_map_region_final
   }
 }
+
+# Takes radio buttons, clicked shape, and selected volunteer levels to return volunteer data 
 
 get_vol <- function(selected_geo, id, selected_levels) { 
   if (selected_geo == "pre") {
@@ -180,60 +174,73 @@ get_vol <- function(selected_geo, id, selected_levels) {
   }
 }
 
+# Color palettes for all the geography levels 
+
+pal_pre <- colorNumeric(palette="viridis", domain=geo_map_pre_final$sup_prop, na.color="transparent")
+pal_fo <- colorNumeric(palette="viridis", domain=geo_map_fo_final$sup_prop, na.color="transparent")
+pal_region <- colorNumeric(palette="viridis", domain=geo_map_region_final$sup_prop, na.color="transparent")
+
+# Function to return correct palette
+get_pal <- function(selected_geo) {
+  if (selected_geo == "pre") {
+    pal_pre
+  } else if (selected_geo == "fo") {
+    pal_fo
+  } else if (selected_geo == "region") {
+    pal_region
+  }
+}
+
+### DEFINING SERVER OBJECT
 
 server <- function(input, output, session) {
-
-  ## use reactive values to store the data you generate from observing the shape click
-  # rv <- reactiveValues()
-  
-  selected_van_id <- reactiveVal(value = 972421)
-  geo_map <- reactiveVal(value = geo_map_pre_final)
-
-  
-  pal <- colorNumeric(palette="viridis", domain=geo_map_pre_final$sup_prop, na.color="transparent")
-
-    
   output$bernie_map <- renderLeaflet({
+      # Pass the shapefile that the user selects
       get_map(input$geometry_select) %>%
       leaflet() %>%
       addPolygons(
-        fillColor  = ~pal(sup_prop),
+        fillColor  = ~get_pal(input$geometry_select)(sup_prop),
         weight = .25,
         opacity = 1,
         fillOpacity = .7,
         layerId = ~select_id
       ) %>%
-      addLegend(pal = pal, values = ~sup_prop, opacity = 0.7, title = NULL,
+      addLegend(pal = get_pal(input$geometry_select), values = ~sup_prop, opacity = 0.7, title = NULL,
                   position = "bottomright") %>%
       addProviderTiles(providers$Hydda)
-  
   })
   
-
   
-  observeEvent(input$bernie_map_shape_click, { # update the selected geoid on map clicks
+  
+  observeEvent(input$bernie_map_shape_click, { 
+    # update the selected geography id on map clicks
     leafletProxy("bernie_map") %>%
       clearGroup("volunteers") %>%
       addMarkers(data = get_vol(input$geometry_select, input$bernie_map_shape_click$id, as.numeric(input$level_select)),
                  ~longitude,
                  ~latitude,
                  group = "volunteers")
-    
-    output$sup_plot <- renderPlotly({
-      sup_plot <- survey_voters_geo %>%
-        filter(van_precinct_id == selected_van_id()) %>%
-        ggplot(aes(x = supportid)) +
-        geom_bar()
-      ggplotly()
     })
+  
+  observeEvent(input$level_select, { 
+    # Update the selected volunteers when boxes are checked
+    if (!is.null(input$bernie_map_shape_click$id)) {
+      leafletProxy("bernie_map") %>%
+        clearGroup("volunteers") %>%
+        addMarkers(data = get_vol(input$geometry_select, input$bernie_map_shape_click$id, as.numeric(input$level_select)),
+                   ~longitude,
+                   ~latitude,
+                   group = "volunteers")
+    }
     
-  })  
-
+  })
+  
+  
   
 }
 
 
 
 
-
+# Run the app
 shinyApp(ui, server, options = list(height = 1080))
